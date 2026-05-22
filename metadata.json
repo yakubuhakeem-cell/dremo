@@ -1,0 +1,6 @@
+{
+  "name": "Dremo",
+  "description": "A modern POS (Point of Sale) system designed to manage inventory, transactions, and generate macro-enabled spreadsheet templates for record-keeping.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

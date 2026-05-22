@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@media print {
+  /* Hide every single element on the web workspace */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Only make our special target printable class block visible and force layout */
+  .receipt-printable,
+  .receipt-printable * {
+    visibility: visible !important;
+  }
+
+  /* Force top left printing bounds */
+  .receipt-printable {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+  }
+
+  /* Remove default browser header/footers margins completely */
+  @page {
+    margin: 0;
+  }
+
+  /* Thermal printing specifics */
+  .receipt-printable span,
+  .receipt-printable p,
+  .receipt-printable div {
+    color: #000000 !important;
+    background: transparent !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    text-shadow: none !important;
+  }
+}
+
+@keyframes stock-pulse {
+  0% {
+    background-color: transparent;
+  }
+  15% {
+    background-color: rgba(16, 185, 129, 0.22); /* Radiant emerald highlight */
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-stock-flash {
+  animation: stock-pulse 2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
