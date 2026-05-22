@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net (Strict Default Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Authentication and verification gates
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\:\\.\\+]+$');
+    }
+
+    // 1. Product Entity Validator Blueprint
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'name', 'sku', 'price', 'cost', 'stock', 'minStock', 'category'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.sku is string && data.sku.size() > 0 && data.sku.size() <= 100
+        && (data.price is number || data.price is int) && data.price >= 0
+        && (data.cost is number || data.cost is int) && data.cost >= 0
+        && data.stock is int && data.stock >= 0
+        && data.minStock is int && data.minStock >= 0
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 100
+        && (!data.keys().hasAny(['color']) || (data.color is string && data.color.size() <= 200));
+    }
+
+    // 2. Category Entity Validator Blueprint
+    function isValidCategory(data) {
+      return data.keys().hasAll(['id', 'name'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100;
+    }
+
+    // 3. Transaction Entity Validator Blueprint (Safeguards Ticket Revenue Integrity)
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'items', 'subtotal', 'tax', 'discount', 'total', 'paymentMethod', 'timestamp', 'cashierName'])
+        && data.id is string && data.id.size() <= 128
+        && data.items is list
+        && data.items.size() > 0
+        && (data.subtotal is number || data.subtotal is int) && data.subtotal >= 0
+        && (data.tax is number || data.tax is int) && data.tax >= 0
+        && (data.discount is number || data.discount is int) && data.discount >= 0
+        && (data.total is number || data.total is int) && data.total >= 0
+        && data.paymentMethod is string && (data.paymentMethod == 'Cash' || data.paymentMethod == 'Card' || data.paymentMethod == 'Mobile Pay' || data.paymentMethod == 'Split Payment')
+        && data.timestamp is string && data.timestamp.size() <= 100
+        && data.cashierName is string && data.cashierName.size() > 0 && data.cashierName.size() <= 150;
+    }
+
+    // Rules matching individual collection nodes
+
+    match /products/{productId} {
+      allow get, list: if true; // Products can be read by any POS Terminal client at startup
+      
+      allow create: if isEmailVerified() 
+                    && isValidId(productId) 
+                    && isValidProduct(request.resource.data) 
+                    && request.resource.data.id == productId;
+                    
+      allow update: if isEmailVerified() 
+                    && isValidId(productId) 
+                    && isValidProduct(request.resource.data) 
+                    && request.resource.data.id == productId;
+                    
+      allow delete: if isEmailVerified() 
+                    && isValidId(productId);
+    }
+
+    match /categories/{categoryId} {
+      allow get, list: if true; // Any POS Terminal reader can retrieve category menus
+      
+      allow create: if isEmailVerified() 
+                    && isValidId(categoryId) 
+                    && isValidCategory(request.resource.data) 
+                    && request.resource.data.id == categoryId;
+                    
+      allow update: if isEmailVerified() 
+                    && isValidId(categoryId) 
+                    && isValidCategory(request.resource.data) 
+                    && request.resource.data.id == categoryId;
+                    
+      allow delete: if isEmailVerified() 
+                    && isValidId(categoryId);
+    }
+
+    match /transactions/{transactionId} {
+      allow get: if isEmailVerified(); // Checkout logs are confidential and require staff authentication
+      allow list: if isEmailVerified() && resource.data.cashierName != ''; // Forces correct secure query criteria on list fetches
+      
+      allow create: if isEmailVerified() 
+                    && isValidId(transactionId) 
+                    && isValidTransaction(request.resource.data) 
+                    && request.resource.data.id == transactionId;
+                    
+      allow update, delete: if false; // Audit logs are strictly immutable and can never be modified or destroyed!
+    }
+  }
+}

@@ -13,7 +13,7 @@ interface RegisterViewProps {
   updateQuantity: (productId: string, quantity: number) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
-  checkout: (paymentMethod: Transaction['paymentMethod'], discount: number, taxRate: number, cashTendered?: number) => Transaction | null;
+  checkout: (paymentMethod: Transaction['paymentMethod'], discount: number, taxRate: number, cashTendered?: number) => Transaction | null | Promise<Transaction | null>;
 }
 
 export default function RegisterView({
@@ -291,8 +291,8 @@ export default function RegisterView({
     setIsQrPaymentSimulatedSuccess(false);
   };
 
-  const processSale = () => {
-    const tx = checkout(paymentMethod, discountPercent, taxRate, paymentMethod === 'Cash' ? cashTendered : undefined);
+  const processSale = async () => {
+    const tx = await checkout(paymentMethod, discountPercent, taxRate, paymentMethod === 'Cash' ? cashTendered : undefined);
     if (tx) {
       setCompletedTx(tx);
     }

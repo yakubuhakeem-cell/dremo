@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ShoppingBag, ClipboardList, BarChart3, Binary, RefreshCw, Terminal, ChevronLeft, ChevronRight } from 'lucide-react';
+import { User } from 'firebase/auth';
+import { LogIn, LogOut, ShieldCheck, ShoppingBag, ClipboardList, BarChart3, Binary, RefreshCw, Terminal, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface SidebarProps {
   currentView: string;
@@ -7,9 +8,12 @@ interface SidebarProps {
   syncStatus: 'synced' | 'syncing' | 'offline';
   onForceSync: () => void;
   txCount: number;
+  currentUser: User | null;
+  onLogin: () => void;
+  onLogout: () => void;
 }
 
-export default function Sidebar({ currentView, setView, syncStatus, onForceSync, txCount }: SidebarProps) {
+export default function Sidebar({ currentView, setView, syncStatus, onForceSync, txCount, currentUser, onLogin, onLogout }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     try {
       return localStorage.getItem('sidebar_collapsed') === 'true';
@@ -168,25 +172,79 @@ export default function Sidebar({ currentView, setView, syncStatus, onForceSync,
 
         {/* Operating Cashier Profile */}
         {!isCollapsed ? (
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-full bg-slate-800 border border-slate-700 font-mono text-xs flex items-center justify-center text-indigo-400 font-bold shrink-0">
-              C1
-            </div>
-            <div className="overflow-hidden">
-              <div className="text-xs font-semibold text-slate-200 truncate">Yakubu Hakeem</div>
-              <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1">
-                <Terminal className="size-2.5" /> Terminal_3000
+          currentUser ? (
+            <div className="flex items-center justify-between gap-2 p-1.5 bg-slate-900/60 rounded-xl border border-slate-800 overflow-hidden">
+              <div className="flex items-center gap-2 overflow-hidden">
+                {currentUser.photoURL ? (
+                  <img
+                    src={currentUser.photoURL}
+                    alt="avatar"
+                    referrerPolicy="no-referrer"
+                    className="size-8 rounded-full ring-2 ring-indigo-500/50 shrink-0"
+                  />
+                ) : (
+                  <div className="size-8 rounded-full bg-indigo-600 font-mono text-xs flex items-center justify-center text-white font-bold shrink-0">
+                    {String(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="overflow-hidden">
+                  <div className="text-xs font-semibold text-slate-200 truncate leading-tight flex items-center gap-1">
+                    {currentUser.displayName || currentUser.email?.split('@')[0] || 'Yakubu Hakeem'}
+                    <ShieldCheck className="size-3 text-indigo-400 shrink-0" />
+                  </div>
+                  <div className="text-[9px] text-slate-500 font-mono truncate">
+                    {currentUser.email}
+                  </div>
+                </div>
               </div>
+              <button
+                id="btn-logout"
+                onClick={onLogout}
+                className="p-1.5 hover:bg-slate-850 rounded-lg text-slate-400 hover:text-rose-400 transition-colors shrink-0 cursor-pointer"
+                title="Sign Out of Cloud Session"
+              >
+                <LogOut className="size-3.5" />
+              </button>
             </div>
-          </div>
+          ) : (
+            <button
+              id="btn-login-google"
+              onClick={onLogin}
+              className="w-full py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-semibold rounded-xl shadow-lg shadow-indigo-600/10 flex items-center justify-center gap-2 transition-all cursor-pointer group"
+            >
+              <LogIn className="size-4 group-hover:translate-x-0.5 transition-transform" /> Sync to Cloud
+            </button>
+          )
         ) : (
           <div className="flex justify-center">
-            <div
-              className="size-9 rounded-full bg-slate-800 border border-slate-700 font-mono text-xs flex items-center justify-center text-indigo-400 font-bold shrink-0 cursor-help"
-              title="Cashier: Yakubu Hakeem | Terminal_3000"
-            >
-              C1
-            </div>
+            {currentUser ? (
+              <button
+                id="btn-logout-collapsed"
+                onClick={onLogout}
+                className="size-9 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 hover:text-rose-400 transition-all cursor-pointer hover:bg-slate-800"
+                title={`Logged in as: ${currentUser.email || 'Authenticated operator'}. Click to Log Out.`}
+              >
+                {currentUser.photoURL ? (
+                  <img
+                    src={currentUser.photoURL}
+                    alt="avatar"
+                    referrerPolicy="no-referrer"
+                    className="size-5 rounded-full"
+                  />
+                ) : (
+                  <LogOut className="size-4" />
+                )}
+              </button>
+            ) : (
+              <button
+                id="btn-login-collapsed"
+                onClick={onLogin}
+                className="size-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 transition-all hover:bg-indigo-500 cursor-pointer"
+                title="Unlock Real-time Database Sync (Log In with Google)"
+              >
+                <LogIn className="size-4 animate-bounce shrink-0" />
+              </button>
+            )}
           </div>
         )}
       </div>

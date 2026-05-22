@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product inside the Café POS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique product identifier" },
+        "name": { "type": "string", "description": "Display name of the product" },
+        "sku": { "type": "string", "description": "Stock Keeping Unit / Barcode" },
+        "price": { "type": "number", "description": "Selling price of the product" },
+        "cost": { "type": "number", "description": "Cost price of the product" },
+        "stock": { "type": "integer", "description": "Current quantity in warehouse/storage" },
+        "minStock": { "type": "integer", "description": "Low-stock flag alert threshold" },
+        "category": { "type": "string", "description": "Product department category (e.g. Cafe, Workspace)" },
+        "color": { "type": "string", "description": "Tailwind color key for card styling" }
+      },
+      "required": ["id", "name", "sku", "price", "cost", "stock", "minStock", "category"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A successful sales order transaction log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction receipt sequence identifier" },
+        "items": {
+          "type": "array",
+          "description": "List of cart items purchased"
+        },
+        "subtotal": { "type": "number", "description": "Revenues before taxes & discounts" },
+        "tax": { "type": "number", "description": "Added dynamic region sales tax" },
+        "discount": { "type": "number", "description": "Percentage discount applied" },
+        "total": { "type": "number", "description": "Final paid ticket amount" },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "Card", "Mobile Pay", "Split Payment"], "description": "How the customer paid" },
+        "timestamp": { "type": "string", "description": "ISO timestamp of transaction" },
+        "cashierName": { "type": "string", "description": "Active staff identity checkout operator" }
+      },
+      "required": ["id", "items", "subtotal", "tax", "discount", "total", "paymentMethod", "timestamp", "cashierName"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Department category inside the Café POS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique category identifier" },
+        "name": { "type": "string", "description": "Display name of the category" }
+      },
+      "required": ["id", "name"]
+    }
+  },
+  "firestore": {
+    "products/{productId}": {
+      "schema": "Product",
+      "description": "Global list of available stock products in the shop"
+    },
+    "transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Historical sales flow documents"
+    },
+    "categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Custom categories defined in the inventory views"
+    }
+  }
+}

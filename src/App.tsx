@@ -6,6 +6,23 @@ import AnalyticsView from './components/AnalyticsView';
 import MacroView from './components/MacroView';
 import { INITIAL_PRODUCTS, MACRO_PRESETS } from './data';
 import { Product, CartItem, Transaction } from './types';
+import {
+  auth,
+  db,
+  googleProvider,
+  signInWithPopup,
+  signOut,
+  handleFirestoreError,
+  OperationType,
+} from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+} from 'firebase/firestore';
 
 // In-memory fallback if localStorage is sandboxed/disabled in preview iframe
 const memoryStorage: Record<string, string> = {};
@@ -31,97 +48,257 @@ const safeStorage = {
 
 export default function App() {
   const [currentView, setView] = useState<string>('register');
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const local = safeStorage.getItem('dremo_products');
-      return local ? JSON.parse(local) : INITIAL_PRODUCTS;
-    } catch (e) {
-      console.error("Failed to parse products from storage:", e);
-      return INITIAL_PRODUCTS;
-    }
-  });
-  
-  const [categories, setCategories] = useState<string[]>(() => {
-    try {
-      const local = safeStorage.getItem('dremo_categories');
-      return local ? JSON.parse(local) : ['Cafe', 'Workspace', 'Goods'];
-    } catch (e) {
-      console.error("Failed to parse categories from storage:", e);
-      return ['Cafe', 'Workspace', 'Goods'];
-    }
-  });
-  
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [categories, setCategories] = useState<string[]>(['Cafe', 'Workspace', 'Goods']);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    try {
-      const local = safeStorage.getItem('dremo_transactions');
-      return local ? JSON.parse(local) : [];
-    } catch (e) {
-      console.error("Failed to parse transactions from storage:", e);
-      return [];
-    }
-  });
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('synced');
-
-  // Sync to local storage for realistic persistence
+  // Sync back to local storage only if offline/unauthenticated to retain user's pre-login edits
   useEffect(() => {
-    try {
-      safeStorage.setItem('dremo_products', JSON.stringify(products));
-    } catch (e) {
-      console.warn("Failed to set products in storage:", e);
+    if (!currentUser) {
+      try {
+        safeStorage.setItem('dremo_products', JSON.stringify(products));
+      } catch (e) {
+        console.warn("Failed to set products in storage:", e);
+      }
     }
-  }, [products]);
+  }, [products, currentUser]);
 
   useEffect(() => {
-    try {
-      safeStorage.setItem('dremo_categories', JSON.stringify(categories));
-    } catch (e) {
-      console.warn("Failed to set categories in storage:", e);
+    if (!currentUser) {
+      try {
+        safeStorage.setItem('dremo_categories', JSON.stringify(categories));
+      } catch (e) {
+        console.warn("Failed to set categories in storage:", e);
+      }
     }
-  }, [categories]);
+  }, [categories, currentUser]);
 
   useEffect(() => {
-    try {
-      safeStorage.setItem('dremo_transactions', JSON.stringify(transactions));
-    } catch (e) {
-      console.warn("Failed to set transactions in storage:", e);
+    if (!currentUser) {
+      try {
+        safeStorage.setItem('dremo_transactions', JSON.stringify(transactions));
+      } catch (e) {
+        console.warn("Failed to set transactions in storage:", e);
+      }
     }
-  }, [transactions]);
+  }, [transactions, currentUser]);
+
+  // Firebase auth state observer
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (user) {
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('offline');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Products synchronization listener
+  useEffect(() => {
+    if (!currentUser) {
+      try {
+        const local = safeStorage.getItem('dremo_products');
+        setProducts(local ? JSON.parse(local) : INITIAL_PRODUCTS);
+      } catch (e) {
+        setProducts(INITIAL_PRODUCTS);
+      }
+      return;
+    }
+
+    setSyncStatus('syncing');
+    const path = 'products';
+    const unsub = onSnapshot(collection(db, path), (snapshot) => {
+      if (snapshot.empty) {
+        // Seed catalog to active Firestore instance
+        INITIAL_PRODUCTS.forEach(async (p) => {
+          try {
+            await setDoc(doc(db, 'products', p.id), p);
+          } catch (err) {
+            console.error("Direct bootstrap write error:", err);
+          }
+        });
+      } else {
+        const list: Product[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push(docSnap.data() as Product);
+        });
+        setProducts(list);
+      }
+      setSyncStatus('synced');
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsub();
+  }, [currentUser]);
+
+  // Categories synchronization listener
+  useEffect(() => {
+    if (!currentUser) {
+      try {
+        const local = safeStorage.getItem('dremo_categories');
+        setCategories(local ? JSON.parse(local) : ['Cafe', 'Workspace', 'Goods']);
+      } catch (e) {
+        setCategories(['Cafe', 'Workspace', 'Goods']);
+      }
+      return;
+    }
+
+    setSyncStatus('syncing');
+    const path = 'categories';
+    const unsub = onSnapshot(collection(db, path), (snapshot) => {
+      if (snapshot.empty) {
+        const defaults = ['Cafe', 'Workspace', 'Goods'];
+        defaults.forEach(async (cat) => {
+          try {
+            await setDoc(doc(db, 'categories', cat), { id: cat, name: cat });
+          } catch (err) {
+            console.error("Direct bootstrap write error:", err);
+          }
+        });
+      } else {
+        const list: string[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push(docSnap.id);
+        });
+        setCategories(list);
+      }
+      setSyncStatus('synced');
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsub();
+  }, [currentUser]);
+
+  // Transactions database listener
+  useEffect(() => {
+    if (!currentUser) {
+      try {
+        const local = safeStorage.getItem('dremo_transactions');
+        setTransactions(local ? JSON.parse(local) : []);
+      } catch (e) {
+        setTransactions([]);
+      }
+      return;
+    }
+
+    setSyncStatus('syncing');
+    const path = 'transactions';
+    const unsub = onSnapshot(collection(db, path), (snapshot) => {
+      const list: Transaction[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push(docSnap.data() as Transaction);
+      });
+      // Order reverse chronologically by timestamp
+      list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      setTransactions(list);
+      setSyncStatus('synced');
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsub();
+  }, [currentUser]);
+
+  // User auth action triggers
+  const handleLogin = async () => {
+    try {
+      setSyncStatus('syncing');
+      await signInWithPopup(auth, googleProvider);
+      setSyncStatus('synced');
+    } catch (e) {
+      console.error("Auth PopUp error: ", e);
+      setSyncStatus('offline');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      setSyncStatus('syncing');
+      await signOut(auth);
+      setSyncStatus('offline');
+    } catch (e) {
+      console.error("Log out error: ", e);
+    }
+  };
 
   // Operations: Category actions
-  const addCategory = (name: string) => {
+  const addCategory = async (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setCategories(prev => {
-      if (prev.includes(trimmed)) return prev;
-      return [...prev, trimmed];
-    });
+
+    if (currentUser) {
+      setSyncStatus('syncing');
+      const path = 'categories';
+      try {
+        await setDoc(doc(db, path, trimmed), { id: trimmed, name: trimmed });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `${path}/${trimmed}`);
+      }
+    } else {
+      setCategories(prev => {
+        if (prev.includes(trimmed)) return prev;
+        return [...prev, trimmed];
+      });
+    }
   };
 
-  const updateCategory = (oldName: string, newName: string) => {
+  const updateCategory = async (oldName: string, newName: string) => {
     const trimmedNew = newName.trim();
     if (!oldName || !trimmedNew || oldName === trimmedNew) return;
-    setCategories(prev => prev.map(c => c === oldName ? trimmedNew : c));
-    setProducts(prev => prev.map(p => p.category === oldName ? { ...p, category: trimmedNew } : p));
-    setCart(prev => prev.map(item => item.product.category === oldName ? { ...item, product: { ...item.product, category: trimmedNew } } : item));
+
+    if (currentUser) {
+      setSyncStatus('syncing');
+      try {
+        await setDoc(doc(db, 'categories', trimmedNew), { id: trimmedNew, name: trimmedNew });
+        const matching = products.filter(p => p.category === oldName);
+        for (const p of matching) {
+          await setDoc(doc(db, 'products', p.id), { ...p, category: trimmedNew });
+        }
+        await deleteDoc(doc(db, 'categories', oldName));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `categories/${oldName}`);
+      }
+    } else {
+      setCategories(prev => prev.map(c => c === oldName ? trimmedNew : c));
+      setProducts(prev => prev.map(p => p.category === oldName ? { ...p, category: trimmedNew } : p));
+      setCart(prev => prev.map(item => item.product.category === oldName ? { ...item, product: { ...item.product, category: trimmedNew } } : item));
+    }
   };
 
-  const deleteCategory = (categoryName: string) => {
-    setCategories(prev => prev.filter(c => c !== categoryName));
-    setProducts(prev => prev.map(p => p.category === categoryName ? { ...p, category: 'Uncategorized' } : p));
-    setCart(prev => prev.map(item => item.product.category === categoryName ? { ...item, product: { ...item.product, category: 'Uncategorized' } } : item));
+  const deleteCategory = async (categoryName: string) => {
+    if (currentUser) {
+      setSyncStatus('syncing');
+      try {
+        const matching = products.filter(p => p.category === categoryName);
+        for (const p of matching) {
+          await setDoc(doc(db, 'products', p.id), { ...p, category: 'Uncategorized' });
+        }
+        await deleteDoc(doc(db, 'categories', categoryName));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `categories/${categoryName}`);
+      }
+    } else {
+      setCategories(prev => prev.filter(c => c !== categoryName));
+      setProducts(prev => prev.map(p => p.category === categoryName ? { ...p, category: 'Uncategorized' } : p));
+      setCart(prev => prev.map(item => item.product.category === categoryName ? { ...item, product: { ...item.product, category: 'Uncategorized' } } : item));
+    }
   };
 
   // Operations: Cart actions
   const addToCart = (product: Product) => {
-    // Check stock availability
     if (product.stock <= 0) return;
 
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
-        // Ensure we don't buy more than in stock
         if (existing.quantity >= product.stock) return prev;
         return prev.map(item =>
           item.product.id === product.id
@@ -132,7 +309,6 @@ export default function App() {
       return [...prev, { product, quantity: 1 }];
     });
 
-    // Temp subtract stock visually while item is in cart
     setProducts(prev =>
       prev.map(p => (p.id === product.id ? { ...p, stock: p.stock - 1 } : p))
     );
@@ -146,7 +322,6 @@ export default function App() {
     const matchProduct = products.find(p => p.id === productId);
 
     if (!matchProduct && diff > 0) return;
-    // Check absolute stock limit when increasing
     if (diff > 0 && matchProduct && matchProduct.stock < diff) return;
 
     if (quantity <= 0) {
@@ -169,7 +344,6 @@ export default function App() {
     const matchCartItem = cart.find(item => item.product.id === productId);
     if (!matchCartItem) return;
 
-    // Return stock back to inventory
     setProducts(prev =>
       prev.map(p =>
         p.id === productId ? { ...p, stock: p.stock + matchCartItem.quantity } : p
@@ -180,7 +354,6 @@ export default function App() {
   };
 
   const clearCart = () => {
-    // Return stock of all items back to catalog
     setProducts(prev => {
       let updated = [...prev];
       cart.forEach(item => {
@@ -193,12 +366,12 @@ export default function App() {
     setCart([]);
   };
 
-  const checkout = (
+  const checkout = async (
     paymentMethod: Transaction['paymentMethod'],
     discount: number,
     taxRate: number,
     cashTendered?: number
-  ): Transaction | null => {
+  ): Promise<Transaction | null> => {
     if (cart.length === 0) return null;
 
     const subtotal = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
@@ -207,8 +380,7 @@ export default function App() {
     const tax = (taxable * taxRate) / 100;
     const total = taxable + tax;
 
-    // VBA Incremental layout row
-    const nextRowIndex = transactions.length + 2; // Rows 1 is headers config
+    const nextRowIndex = transactions.length + 2;
 
     const newTx: Transaction = {
       id: `DRM-${Date.now().toString().slice(-6)}`,
@@ -224,14 +396,31 @@ export default function App() {
       total,
       paymentMethod,
       timestamp: new Date().toISOString(),
-      cashierName: 'Yakubu Hakeem',
+      cashierName: currentUser ? (currentUser.displayName || currentUser.email || 'Yakubu Hakeem') : 'Yakubu Hakeem',
       excelRowIndex: nextRowIndex
     };
 
-    setTransactions(prev => [newTx, ...prev]);
-    setCart([]); // Clear cart (products stock updated previously during add to cart)
+    if (currentUser) {
+      setSyncStatus('syncing');
+      try {
+        await setDoc(doc(db, 'transactions', newTx.id), newTx);
+
+        // Update product configurations stock state in cloud catalog
+        for (const item of cart) {
+          const matchingProduct = products.find(p => p.id === item.product.id);
+          if (matchingProduct) {
+            await setDoc(doc(db, 'products', item.product.id), matchingProduct);
+          }
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `transactions/${newTx.id}`);
+      }
+    } else {
+      setTransactions(prev => [newTx, ...prev]);
+    }
+
+    setCart([]);
     
-    // Smooth layout syncing alert feedback
     setSyncStatus('syncing');
     setTimeout(() => {
       setSyncStatus('synced');
@@ -241,23 +430,65 @@ export default function App() {
   };
 
   // Inventory master modifiers
-  const addProduct = (newP: Omit<Product, 'id'>) => {
+  const addProduct = async (newP: Omit<Product, 'id'>) => {
     const pid = `p-${Date.now()}`;
-    setProducts(prev => [...prev, { ...newP, id: pid }]);
+    const productData: Product = { ...newP, id: pid };
+
+    if (currentUser) {
+      setSyncStatus('syncing');
+      try {
+        await setDoc(doc(db, 'products', pid), productData);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `products/${pid}`);
+      }
+    } else {
+      setProducts(prev => [...prev, productData]);
+    }
   };
 
-  const updateStock = (productId: string, newStock: number) => {
-    setProducts(prev =>
-      prev.map(p => (p.id === productId ? { ...p, stock: Math.max(0, newStock) } : p))
-    );
+  const updateStock = async (productId: string, newStock: number) => {
+    const val = Math.max(0, newStock);
+    if (currentUser) {
+      setSyncStatus('syncing');
+      try {
+        const target = products.find(p => p.id === productId);
+        if (target) {
+          await setDoc(doc(db, 'products', productId), { ...target, stock: val });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `products/${productId}`);
+      }
+    } else {
+      setProducts(prev =>
+        prev.map(p => (p.id === productId ? { ...p, stock: val } : p))
+      );
+    }
   };
 
-  const updateProduct = (updatedP: Product) => {
-    setProducts(prev => prev.map(p => (p.id === updatedP.id ? updatedP : p)));
+  const updateProduct = async (updatedP: Product) => {
+    if (currentUser) {
+      setSyncStatus('syncing');
+      try {
+        await setDoc(doc(db, 'products', updatedP.id), updatedP);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `products/${updatedP.id}`);
+      }
+    } else {
+      setProducts(prev => prev.map(p => (p.id === updatedP.id ? updatedP : p)));
+    }
   };
 
-  const deleteProduct = (productId: string) => {
-    setProducts(prev => prev.filter(p => p.id !== productId));
+  const deleteProduct = async (productId: string) => {
+    if (currentUser) {
+      setSyncStatus('syncing');
+      try {
+        await deleteDoc(doc(db, 'products', productId));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `products/${productId}`);
+      }
+    } else {
+      setProducts(prev => prev.filter(p => p.id !== productId));
+    }
   };
 
   const handleForceRecalcSync = () => {
@@ -275,7 +506,6 @@ export default function App() {
     }
 
     let csvContent = "data:text/csv;charset=utf-8,";
-    // Header corresponding to RecordTransaction vba input
     csvContent += "Timestamp,Transaction ID,Subtotal,Tax,Discount,Total Revenue,Payment Method,Excel Row Index\r\n";
 
     transactions.forEach(tx => {
@@ -337,6 +567,9 @@ export default function App() {
         syncStatus={syncStatus}
         onForceSync={handleForceRecalcSync}
         txCount={transactions.length}
+        currentUser={currentUser}
+        onLogin={handleLogin}
+        onLogout={handleLogout}
       />
 
       {/* Main Container Portal */}
