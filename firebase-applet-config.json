@@ -1,10 +1,10 @@
 {
-  "projectId": "fleet-coral-scf5x",
-  "appId": "1:996050035098:web:2db3cceeea860295481a23",
-  "apiKey": "AIzaSyD7xsAYZbBlTKRvo23QHxwx2nzLeVnJJmM",
-  "authDomain": "fleet-coral-scf5x.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-737b11d1-dc54-4a25-9f3a-7963fb88f2cd",
-  "storageBucket": "fleet-coral-scf5x.firebasestorage.app",
-  "messagingSenderId": "996050035098",
+  "projectId": "dremo-pos-terminal",
+  "appId": "1:982261021403:web:0e41557c9f03348edaeafe",
+  "apiKey": "AIzaSyA2BezbkoLd1kiMcumrZiISPCVcoff8eqg",
+  "authDomain": "dremo-pos-terminal.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "dremo-pos-terminal.firebasestorage.app",
+  "messagingSenderId": "982261021403",
   "measurementId": ""
 }
