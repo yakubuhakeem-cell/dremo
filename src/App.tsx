@@ -4,6 +4,7 @@ import RegisterView from './components/RegisterView';
 import InventoryView from './components/InventoryView';
 import AnalyticsView from './components/AnalyticsView';
 import MacroView from './components/MacroView';
+import AuthModal from './components/AuthModal';
 import { INITIAL_PRODUCTS, MACRO_PRESETS } from './data';
 import { Product, CartItem, Transaction } from './types';
 import {
@@ -54,6 +55,7 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline'>('offline');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Sync back to local storage only if offline/unauthenticated to retain user's pre-login edits
   useEffect(() => {
@@ -208,7 +210,11 @@ export default function App() {
   }, [currentUser]);
 
   // User auth action triggers
-  const handleLogin = async () => {
+  const handleLogin = () => {
+    setIsAuthModalOpen(true);
+  };
+
+  const handleGoogleSignIn = async () => {
     try {
       setSyncStatus('syncing');
       await signInWithPopup(auth, googleProvider);
@@ -216,7 +222,13 @@ export default function App() {
     } catch (e) {
       console.error("Auth PopUp error: ", e);
       setSyncStatus('offline');
+      throw e;
     }
+  };
+
+  const handleAuthSuccess = (user: User) => {
+    setCurrentUser(user);
+    setSyncStatus('synced');
   };
 
   const handleLogout = async () => {
@@ -616,6 +628,13 @@ export default function App() {
           />
         )}
       </main>
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+        onGoogleSignIn={handleGoogleSignIn}
+      />
     </div>
   );
 }

@@ -13,7 +13,7 @@ service cloud.firestore {
     }
 
     function isEmailVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'password');
     }
 
     function isValidId(id) {
